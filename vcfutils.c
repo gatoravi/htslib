@@ -1,6 +1,6 @@
 /*  vcfutils.c -- allele-related utility functions.
 
-    Copyright (C) 2012-2014 Genome Research Ltd.
+    Copyright (C) 2012-2015 Genome Research Ltd.
 
     Author: Petr Danecek <pd3@sanger.ac.uk>
 
@@ -198,18 +198,31 @@ int bcf_trim_alleles(const bcf_hdr_t *header, bcf1_t *line)
     }
     #undef BRANCH
 
-    int rm_als = 0, nrm = 0;
+    int nrm = 0;
+    kbitset_t *bset = kbs_init(line->n_allele);
     for (i=1; i<line->n_allele; i++)
     {
-        if ( !ac[i] ) { rm_als |= 1<<i; nrm++; }
+        if ( !ac[i] ) { kbs_insert(bset, i); nrm++; }
     }
     free(ac);
 
-    if ( nrm ) bcf_remove_alleles(header, line, rm_als);
+    if ( nrm ) bcf_remove_alleles_set(header, line, bset);
+    kbs_destroy(bset);
     return nrm;
 }
 
 void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
+{
+    int i;
+    kbitset_t *bset = kbs_init(line->n_allele);
+    for (i=1; i<line->n_allele; i++)
+        if ( rm_mask & 1<<i ) kbs_insert(bset, i);
+
+    bcf_remove_alleles_set(header, line, bset);
+    kbs_destroy(bset);
+}
+
+void bcf_remove_alleles_set(const bcf_hdr_t *header, bcf1_t *line, kbitset_t *bset)
 {
     int *map = (int*) calloc(line->n_allele, sizeof(int));
 
@@ -220,7 +233,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
     int nrm = 0, i,j;  // i: ori alleles, j: new alleles
     for (i=1, j=1; i<line->n_allele; i++)
     {
-        if ( rm_mask & 1<<i )
+        if ( kbs_exists(bset, i) )
         {
             // remove this allele
             line->d.allele[i] = NULL;
@@ -287,7 +300,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
                 {
                     if ( !*se ) break;
                     while ( *se && *se!=',' ) se++;
-                    if ( rm_mask & 1<<(j+inc) )
+                    if ( kbs_exists(bset, j+inc) )
                     {
                         if ( *se ) se++;
                         ss = se;
@@ -310,7 +323,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
                         if ( !*se ) break;
                         while ( *se && *se!=',' ) se++;
                         n++;
-                        if ( rm_mask & 1<<j || rm_mask & 1<<k )
+                        if ( kbs_exists(bset, j) || kbs_exists(bset, k) )
                         {
                             if ( *se ) se++;
                             ss = se;
@@ -361,7 +374,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
                 for (j=0; j<ntop; j++) /* j:ori, k:new */ \
                 { \
                     if ( is_vector_end ) { memcpy(dat+k*size, dat+j*size, size); break; } \
-                    if ( rm_mask & 1<<(j+inc) ) continue; \
+                    if ( kbs_exists(bset, j+inc) ) continue; \
                     if ( j!=k ) memcpy(dat+k*size, dat+j*size, size); \
                     k++; \
                 } \
@@ -389,7 +402,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
                     { \
                         l_ori++; \
                         if ( is_vector_end ) { memcpy(dat+l_new*size, dat+l_ori*size, size); break; } \
-                        if ( rm_mask & 1<<j || rm_mask & 1<<k ) continue; \
+                        if ( kbs_exists(bset, j) || kbs_exists(bset, k) ) continue; \
                         if ( l_ori!=l_new ) memcpy(dat+l_new*size, dat+l_ori*size, size); \
                         l_new++; \
                     } \
@@ -486,7 +499,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
                     {
                         if ( ptr>=se || !*ptr) break;
                         while ( ptr<se && *ptr && *ptr!=',' ) ptr++;
-                        if ( rm_mask & 1<<(k_src+inc) )
+                        if ( kbs_exists(bset, k_src+inc) )
                         {
                             ss = ++ptr;
                             continue;
@@ -526,7 +539,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
                             {
                                 if ( ptr>=se || !*ptr ) break;
                                 while ( ptr<se && *ptr && *ptr!=',' ) ptr++;
-                                if ( rm_mask & 1<<ia || rm_mask & 1<<ib )
+                                if ( kbs_exists(bset, ia) || kbs_exists(bset, ib) )
                                 {
                                     ss = ++ptr;
                                     continue;
@@ -545,7 +558,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
                         {
                             if ( ptr>=se || !*ptr ) break;
                             while ( ptr<se && *ptr && *ptr!=',' ) ptr++;
-                            if ( rm_mask & 1<<k_src )
+                            if ( kbs_exists(bset, k_src) )
                             {
                                 ss = ++ptr;
                                 continue;
@@ -600,7 +613,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
                     for (k_src=0; k_src<nori; k_src++) \
                     { \
                         if ( is_vector_end ) { memcpy(ptr_dst+k_dst, ptr_src+k_src, size); break; } \
-                        if ( rm_mask & 1<<(k_src+inc) ) continue; \
+                        if ( kbs_exists(bset, k_src+inc) ) continue; \
                         memcpy(ptr_dst+k_dst, ptr_src+k_src, size); \
                         k_dst++; \
                     } \
@@ -632,7 +645,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
                     { \
                         for (k_src=0; k_src<nR_ori; k_src++) \
                         { \
-                            if ( rm_mask & 1<<k_src ) continue; \
+                            if ( kbs_exists(bset, k_src) ) continue; \
                             memcpy(ptr_dst+k_dst, ptr_src+k_src, size); \
                             k_dst++; \
                         } \
@@ -647,7 +660,7 @@ void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int rm_mask)
                             { \
                                 k_src++; \
                                 if ( is_vector_end ) { memcpy(ptr_dst+k_dst, ptr_src+k_src, size); ia = nR_ori; break; }  \
-                                if ( rm_mask & 1<<ia || rm_mask & 1<<ib ) continue; \
+                                if ( kbs_exists(bset, ia) || kbs_exists(bset, ib) ) continue; \
                                 memcpy(ptr_dst+k_dst, ptr_src+k_src, size); \
                                 k_dst++; \
                             } \

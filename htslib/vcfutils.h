@@ -1,6 +1,6 @@
 /*  vcfutils.h -- allele-related utility functions.
 
-    Copyright (C) 2012, 2013 Genome Research Ltd.
+    Copyright (C) 2012-2015 Genome Research Ltd.
 
     Author: Petr Danecek <pd3@sanger.ac.uk>
 
@@ -26,6 +26,7 @@ DEALINGS IN THE SOFTWARE.  */
 #define HTSLIB_VCFUTILS_H
 
 #include "vcf.h"
+#include "htslib/kbitset.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,15 +43,27 @@ extern "C" {
  */
 int bcf_trim_alleles(const bcf_hdr_t *header, bcf1_t *line);
 
-
 /**
  *  bcf_remove_alleles() - remove ALT alleles according to bitmask @mask
  *  @header:  for access to BCF_DT_ID dictionary
  *  @line:    VCF line obtained from vcf_parse1
  *  @mask:    alleles to remove
+ * 
+ *  If you have more than 31 alleles, then the integer bit mask will
+ *  overflow, so use bcf_remove_alleles_set instead
  */
 void bcf_remove_alleles(const bcf_hdr_t *header, bcf1_t *line, int mask);
 
+/**
+ *  bcf_remove_alleles_set() - remove ALT alleles according to bitset @bset
+ *  @header:  for access to BCF_DT_ID dictionary
+ *  @line:    VCF line obtained from vcf_parse1
+ *  @bset:    pointer to kbitset_t object with bits set for allele
+ *            indexes to remove
+ *  
+ *  Number=A,R,G INFO and FORMAT fields will be updated accordingly.
+ */
+void bcf_remove_alleles_set(const bcf_hdr_t *header, bcf1_t *line, kbitset_t *bset);
 
 /**
  *  bcf_calc_ac() - calculate the number of REF and ALT alleles
